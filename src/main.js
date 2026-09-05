@@ -1,58 +1,112 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { createOcean, floorHeight } from './ocean.js';
+import { createPropellers } from './propellers.js';
 import './style.css';
 
-const canvas = document.querySelector('#scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
-renderer.setAnimationLoop(animate);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color('#04131d');
-scene.fog = new THREE.FogExp2('#04202d', .018);
-const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, .1, 160);
-const clock = new THREE.Clock();
-const keys = new Set();
-const sub = new THREE.Group();
-const samples = [];
-let started = false, collected = 0, energy = 100, elapsed = 0;
-const message = document.querySelector('#message');
-
-scene.add(new THREE.HemisphereLight('#69d8ff', '#062a25', 1.4));
-const keyLight = new THREE.DirectionalLight('#90e9ff', 2.2); keyLight.position.set(-8, 14, 5); keyLight.castShadow = true; scene.add(keyLight);
-const seabed = new THREE.Mesh(new THREE.PlaneGeometry(150, 150, 45, 45), new THREE.MeshStandardMaterial({ color:'#0a3434', roughness: .95, metalness: .1 }));
-seabed.rotation.x = -Math.PI / 2; seabed.receiveShadow = true;
-const p = seabed.geometry.attributes.position; for(let i=0;i<p.count;i++) p.setY(i, Math.sin(p.getX(i)*.23)*.45 + Math.cos(p.getZ(i)*.17)*.35 - 8); p.needsUpdate=true; seabed.geometry.computeVertexNormals(); scene.add(seabed);
-
-function makeSubmersible() {
-  const hullMat = new THREE.MeshStandardMaterial({ color:'#e7c756', metalness:.72, roughness:.23 });
-  const darkMat = new THREE.MeshStandardMaterial({ color:'#13242d', metalness:.7, roughness:.3 });
-  const glass = new THREE.MeshPhysicalMaterial({ color:'#88dfff', transparent:true, opacity:.67, roughness:.05, metalness:.1 });
-  const body = new THREE.Mesh(new THREE.SphereGeometry(1.05, 28, 16), hullMat); body.scale.set(.74,.72,1.45); body.castShadow=true; sub.add(body);
-  const window = new THREE.Mesh(new THREE.SphereGeometry(.61, 24, 12), glass); window.position.set(0,.12,-.62); window.scale.set(.72,.5,.25); sub.add(window);
-  const finGeo = new THREE.BoxGeometry(.48,.1,.95); [[-.85,0,0],[.85,0,0]].forEach(([x,y,z]) => { const f=new THREE.Mesh(finGeo,darkMat); f.position.set(x,y,z); f.rotation.z=.18; sub.add(f); });
-  const tail = new THREE.Mesh(new THREE.ConeGeometry(.34,.6,16), darkMat); tail.rotation.x=Math.PI/2; tail.position.z=1.65; sub.add(tail);
-  const lamp = new THREE.SpotLight('#a5f3ff', 8, 23, .42, .8, 1); lamp.position.set(0,0,-1.35); lamp.target.position.set(0,0,-14); sub.add(lamp, lamp.target);
-  const glow = new THREE.Mesh(new THREE.SphereGeometry(.12,10,8), new THREE.MeshBasicMaterial({color:'#d8ffff'})); glow.position.set(0,0,-1.37); sub.add(glow);
+const renderer=new THREE.WebGLRenderer({canvas:document.querySelector('#scene'),antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));
+renderer.setSize(innerWidth,innerHeight);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.5;
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFShadowMap;
+const scene=new THREE.Scene();
+scene.background=new THREE.Color('#07303b');
+scene.fog=new THREE.FogExp2('#07303b',.027);
+const pmrem=new THREE.PMREMGenerator(renderer);
+const room=new RoomEnvironment();
+scene.environment=pmrem.fromScene(room,.04).texture;
+scene.environmentIntensity=.6;
+room.dispose();pmrem.dispose();
+scene.add(new THREE.HemisphereLight(0x92d6db,0x35493b,2));
+const sun=new THREE.DirectionalLight(0x94dae7,3);
+sun.position.set(-15,30,8);scene.add(sun);
+const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,.1,180);
+const ocean=createOcean(scene);
+const sub=new THREE.Group();scene.add(sub);
+sub.position.set(0,-4,7);
+camera.position.set(5,0,14);
+for(const x of [-.7,.7]) {
+  const light=new THREE.SpotLight(0xc5f3ff,100,32,.58,.65,1.2);
+  light.position.set(x,-.35,-1.4);light.target.position.set(x,-5,-14);
+  light.castShadow=true;light.shadow.mapSize.set(1024,1024);light.shadow.bias=-.001;
+  sub.add(light,light.target);
 }
-makeSubmersible(); sub.position.set(0,-2,7); scene.add(sub);
+const fill=new THREE.PointLight(0xb2dce3,5,7);fill.position.set(0,2,1);sub.add(fill);
+const launch=document.querySelector('#launch');
+const message=document.querySelector('#message');
+launch.disabled=true;launch.textContent='潜水艇を準備中…';
+let model,propellers;
+new GLTFLoader().load('/models/submersible.glb',gltf=>{
+  model=gltf.scene;model.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+  sub.add(model);launch.disabled=false;launch.textContent='探査を開始';
+  propellers=createPropellers(model);
+},undefined,()=>{launch.textContent='モデル読込失敗・再読み込みしてください';});
 
-function addCoral(x,z, color) { const g=new THREE.Group(); for(let i=0;i<4;i++){ const stalk=new THREE.Mesh(new THREE.CylinderGeometry(.08,.16,1+Math.random()*1.5,7),new THREE.MeshStandardMaterial({color,roughness:.8})); stalk.position.set((Math.random()-.5)*1.2,-7,(Math.random()-.5)*1.2); stalk.rotation.z=(Math.random()-.5)*.45; g.add(stalk); } g.position.set(x,0,z); scene.add(g); }
-for(let i=0;i<42;i++) addCoral((Math.random()-.5)*75,(Math.random()-.5)*75, ['#157a7f','#0f5b62','#cb7b58'][i%3]);
-
-function addSample(x,z,label) { const g=new THREE.Group(); const orb=new THREE.Mesh(new THREE.IcosahedronGeometry(.43,2),new THREE.MeshStandardMaterial({color:'#35e2ff',emissive:'#098aab',emissiveIntensity:2,roughness:.2})); orb.position.y=-6.2; g.add(orb); const ring=new THREE.Mesh(new THREE.TorusGeometry(.65,.025,8,32),new THREE.MeshBasicMaterial({color:'#6af6ff'})); ring.rotation.x=Math.PI/2; ring.position.y=-6.5; g.add(ring); const beam=new THREE.PointLight('#33dcff',2.7,7); beam.position.y=-5.6; g.add(beam); g.position.set(x,0,z); g.userData={label,orb,ring,found:false}; samples.push(g); scene.add(g); }
-[[10,0,'発光クラゲの組織'],[-10,-8,'熱水鉱床の菌類'],[4,-21,'深海サンゴの標本'],[-18,-26,'未知の甲殻類'],[19,-31,'古代の貝殻']].forEach(v=>addSample(...v));
-
-function updateHUD() { document.querySelector('#depth').textContent=`${Math.max(0,Math.round((-sub.position.y-1)*42))} m`; document.querySelector('#energy').textContent=`${Math.max(0,Math.round(energy))}%`; document.querySelector('#samples').textContent=`${collected} / 5`; }
-function notify(text){message.textContent=text; message.classList.add('flash'); setTimeout(()=>message.classList.remove('flash'),300);}
-addEventListener('keydown', e=>{ keys.add(e.code); if(e.code==='KeyE') collectNearest(); }); addEventListener('keyup', e=>keys.delete(e.code));
-function collectNearest(){ if(!started) return; const target=samples.find(s=>!s.userData.found && s.position.distanceTo(sub.position)<3); if(!target){ notify('近くに回収可能なサンプルはありません。'); return; } target.userData.found=true; target.visible=false; collected++; notify(`回収成功：${target.userData.label}`); if(collected===5){ document.querySelector('#complete').classList.remove('hidden'); started=false; } updateHUD(); }
-function reset(){ collected=0; energy=100; elapsed=0; sub.position.set(0,-2,7); sub.rotation.set(0,0,0); samples.forEach(s=>{s.userData.found=false;s.visible=true}); updateHUD(); notify('新しい探査を開始。青いビーコンを探してください。'); }
-document.querySelector('#launch').onclick=()=>{document.querySelector('#start').classList.add('hidden'); started=true; clock.getDelta();}; document.querySelector('#restart').onclick=()=>{document.querySelector('#complete').classList.add('hidden');reset();started=true;};
-
-const forward=new THREE.Vector3(), desiredCam=new THREE.Vector3(), lookAt=new THREE.Vector3();
-function animate(){ const dt=Math.min(clock.getDelta(),.05); elapsed+=dt; if(started){ const turn=(keys.has('KeyA')||keys.has('ArrowLeft')?1:0)-(keys.has('KeyD')||keys.has('ArrowRight')?1:0); sub.rotation.y+=turn*dt*1.6; const move=(keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(keys.has('KeyS')||keys.has('ArrowDown')?1:0); sub.getWorldDirection(forward); sub.position.addScaledVector(forward, move*dt*7); const vertical=(keys.has('Space')?1:0)-(keys.has('ShiftLeft')||keys.has('ShiftRight')?1:0); sub.position.y+=vertical*dt*4; sub.position.y=THREE.MathUtils.clamp(sub.position.y,-6.0,4); energy-=dt*(.35+Math.abs(move)*.2); if(energy<=0){energy=0;started=false;notify('エネルギー切れ。探査をやり直してください。');} samples.filter(s=>!s.userData.found).forEach(s=>{s.userData.orb.rotation.y+=dt; s.userData.ring.rotation.z+=dt;}); updateHUD(); }
-  desiredCam.copy(sub.position).add(new THREE.Vector3(0,3.3,5).applyAxisAngle(new THREE.Vector3(0,1,0),sub.rotation.y)); camera.position.lerp(desiredCam,.055); lookAt.copy(sub.position).add(new THREE.Vector3(0,0,-3).applyAxisAngle(new THREE.Vector3(0,1,0),sub.rotation.y)); camera.lookAt(lookAt); renderer.render(scene,camera); }
+const samples=[];
+for(const [x,z,label] of [[7,0,'発光生物の組織'],[-10,-8,'熱水鉱床の菌類'],[4,-21,'深海サンゴの標本'],[-18,-26,'未知の甲殻類'],[19,-31,'古代の貝殻']]) {
+  const group=new THREE.Group();group.position.set(x,floorHeight(x,z)+1,z);
+  const orb=new THREE.Mesh(new THREE.IcosahedronGeometry(.3,2),new THREE.MeshStandardMaterial({color:0x74e4de,emissive:0x148c8c,emissiveIntensity:2,roughness:.3}));
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(.65,.018,8,48),new THREE.MeshBasicMaterial({color:0x73ebeb}));ring.rotation.x=-Math.PI/2;ring.position.y=-.45;
+  const glow=new THREE.PointLight(0x3aebdd,5,6);group.add(orb,ring,glow);
+  group.userData={found:false,label};samples.push(group);scene.add(group);
+}
+const keys=new Set();let started=false,collected=0,energy=100,speed=0,time=0,last=performance.now();
+const forward=new THREE.Vector3(),offset=new THREE.Vector3(),look=new THREE.Vector3();
+const complete=document.querySelector('#complete');
+function notify(text){message.textContent=text;}
+function hud(){
+  document.querySelector('#depth').textContent=`${Math.round(180-sub.position.y*10)} m`;
+  document.querySelector('#energy').textContent=`${Math.ceil(energy)}%`;
+  document.querySelector('#samples').textContent=`${collected} / 5`;
+}
+function collect(){
+  if(!started)return;
+  const near=samples.find(s=>!s.userData.found&&s.position.distanceTo(sub.position)<3);
+  if(!near){notify('サンプルの3 m以内で E を押してください。');return;}
+  near.visible=false;near.userData.found=true;collected++;notify(`回収：${near.userData.label}`);
+  if(collected===5)finish(true);hud();
+}
+function finish(success){
+  started=false;keys.clear();complete.classList.remove('hidden');
+  complete.querySelector('p').textContent=success?'MISSION COMPLETE':'MISSION ENDED';
+  complete.querySelector('h1').textContent=success?'全サンプルを回収':'エネルギー切れ';
+  complete.querySelector('span').textContent=success?'海洋研究基地へデータを送信しました。':'再出発して探索ルートを見直しましょう。';
+}
+function start(){started=true;keys.clear();document.querySelector('#start').classList.add('hidden');}
+launch.onclick=start;
+document.querySelector('#restart').onclick=()=>{
+  sub.position.set(0,-4,7);sub.rotation.set(0,0,0);collected=0;energy=100;speed=0;
+  samples.forEach(s=>{s.visible=true;s.userData.found=false;});complete.classList.add('hidden');start();
+};
+addEventListener('keydown',e=>{
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+  keys.add(e.code);if(e.code==='KeyE'&&!e.repeat)collect();
+});
+addEventListener('keyup',e=>keys.delete(e.code));addEventListener('blur',()=>keys.clear());
+const pressed=(a,b)=>keys.has(a)||keys.has(b);
+renderer.setAnimationLoop(now=>{
+  const dt=Math.min((now-last)/1000,.05);last=now;time+=dt;ocean.update(dt);
+  const turn=Number(pressed('KeyA','ArrowLeft'))-Number(pressed('KeyD','ArrowRight'));
+  const throttle=Number(pressed('KeyW','ArrowUp'))-Number(pressed('KeyS','ArrowDown'));
+  propellers?.update(dt,started,throttle,turn);
+  if(started){
+    sub.rotation.y+=turn*dt*1.05;
+    speed=THREE.MathUtils.damp(speed,throttle*5,2,dt);
+    forward.set(0,0,-1).applyQuaternion(sub.quaternion);sub.position.addScaledVector(forward,speed*dt);
+    sub.position.y+=(Number(keys.has('Space'))-Number(pressed('ShiftLeft','ShiftRight')))*dt*2.5;
+    sub.position.x=THREE.MathUtils.clamp(sub.position.x,-65,65);sub.position.z=THREE.MathUtils.clamp(sub.position.z,-65,65);
+    sub.position.y=THREE.MathUtils.clamp(sub.position.y,floorHeight(sub.position.x,sub.position.z)+1.35,1);
+    energy=Math.max(0,energy-dt*(.08+Math.abs(speed)*.015));if(!energy)finish(false);
+    const nearest=samples.filter(s=>!s.userData.found).sort((a,b)=>a.position.distanceToSquared(sub.position)-b.position.distanceToSquared(sub.position))[0];
+    if(nearest){const d=nearest.position.distanceTo(sub.position);notify(d<3?`E：${nearest.userData.label}を回収`:`最寄りのサンプル ${d.toFixed(0)} m ・ 青い光を探してください`);}
+  }
+  if(model){model.position.y=Math.sin(time*.9)*.04;model.rotation.z=Math.sin(time*.7)*.01;}
+  offset.set(4.6,2.7,7.2).applyQuaternion(sub.quaternion).add(sub.position);
+  camera.position.lerp(offset,1-Math.exp(-dt*3));
+  look.set(0,-.3,-3).applyQuaternion(sub.quaternion).add(sub.position);camera.lookAt(look);
+  hud();renderer.render(scene,camera);
+});
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
