@@ -1,0 +1,24 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>探索BGM検証</title>
+<body style="background:#092735;color:#e3fff6;font:16px sans-serif;padding:40px">
+<h1>探索BGMの音声波形検証</h1><button id="run">音声検証を実行</button><pre id="result">未実行</pre>
+<script type="module">
+import {scheduleMusicBar,MUSIC_GAIN} from '/src/audio.js';
+document.querySelector('#run').onclick=async()=>{
+  const output=document.querySelector('#result');output.textContent='レンダリング中';
+  try {
+    const duration=8*4*60/72+5;
+    const context=new OfflineAudioContext(1,Math.ceil(duration*44100),44100);
+    const bus=context.createGain();bus.gain.value=MUSIC_GAIN;bus.connect(context.destination);
+    for(let bar=0;bar<8;bar++)scheduleMusicBar(context,bus,.05+bar*4*60/72,bar);
+    const buffer=await context.startRendering(),data=buffer.getChannelData(0);
+    let peak=0,sum=0;for(const sample of data){if(!Number.isFinite(sample))throw Error('Invalid waveform');peak=Math.max(peak,Math.abs(sample));sum+=sample*sample;}
+    const rms=Math.sqrt(sum/data.length);
+    if(peak<.01||peak>.98||rms<.005)throw Error('Silent or clipping audio');
+    for(let second=1;second<26;second++){
+      let energy=0;for(let i=second*44100;i<(second+1)*44100;i++)energy+=data[i]*data[i];
+      if(energy<.001)throw Error('Unexpected gap at '+second+' seconds');
+    }
+    output.textContent=`PASS · 8小節を実レンダリング\n長さ ${duration.toFixed(2)}秒\nピーク ${peak.toFixed(4)}\nRMS ${rms.toFixed(4)}\nクリッピングなし・無音区間なし`;
+  } catch(error){output.textContent='FAIL · '+error.message;}
+};
+</script></body></html>
