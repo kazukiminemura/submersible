@@ -8,6 +8,8 @@ import { createCreatures } from './creatures.js';
 import { createAudio } from './audio.js';
 import { createGameHud } from './game-hud.js';
 import { createExplorationEffects } from './exploration-effects.js';
+import { createSampleContact } from './sample-contact.js';
+import { setSampleCollected } from './sample-state.js';
 import './style.css';
 
 const renderer=new THREE.WebGLRenderer({canvas:document.querySelector('#scene'),antialias:true});
@@ -51,10 +53,13 @@ const launch=document.querySelector('#launch');
 const message=document.querySelector('#message');
 launch.disabled=true;launch.textContent='潜水艇と海洋生物を準備中…';
 let model,propellers,creatures;
+const pickupBounds=new THREE.Box3();
+const touchesSample=createSampleContact(pickupBounds);
 Promise.all([new GLTFLoader().loadAsync('/models/submersible.glb'),createCreatures(scene)]).then(([gltf,fauna])=>{
   model=gltf.scene;model.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
   propellers=createPropellers(model);
   creatures=fauna;
+  pickupBounds.setFromObject(model);
   sub.add(model);launch.disabled=false;launch.textContent='探査を開始';
 }).catch(error=>{console.error('Scene asset loading failed',error);launch.textContent='モデル読込失敗・再読み込みしてください';});
 
@@ -78,11 +83,9 @@ function hud(){
   document.querySelector('#energy').textContent=`${Math.ceil(energy)}%`;
   document.querySelector('#samples').textContent=`${collected} / 5`;
 }
-function collect(){
-  if(!started)return;
-  const near=samples.find(s=>!s.userData.found&&s.position.distanceTo(sub.position)<3);
-  if(!near){gameHud.toast('サンプルに近づいてください','3 m以内で E を押すと回収できます');return;}
-  near.visible=false;near.userData.found=true;collected++;points+=200;
+function collect(near){
+  if(!started||near.userData.found)return;
+  setSampleCollected(near,true);collected++;points+=200;
   effects.emit(near.position,true);soundtrack.effect('collect');
   gameHud.toast('SAMPLE SECURED · +200',`${near.userData.label}　${collected} / 5`);
   if(collected===5)finish(true);hud();
@@ -111,14 +114,14 @@ launch.onclick=start;
 document.querySelector('#restart').onclick=()=>{
   sub.position.set(0,-4,7);sub.rotation.set(0,0,0);collected=0;energy=100;speed=0;
   elapsed=0;points=0;scanCooldown=0;scanGlow=0;discoveries.clear();
-  samples.forEach(s=>{s.visible=true;s.userData.found=false;});complete.classList.add('hidden');start();
+  samples.forEach(s=>setSampleCollected(s,false));complete.classList.add('hidden');start();
 };
 addEventListener('keydown',e=>{
   if(e.target instanceof HTMLInputElement)return;
   if(e.code==='KeyM'&&!e.repeat){soundtrack.toggleMute();return;}
   if(e.target instanceof HTMLButtonElement&&(e.code==='Space'||e.code==='Enter'))return;
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
-  keys.add(e.code);if(e.code==='KeyE'&&!e.repeat)collect();
+  keys.add(e.code);
   if(e.code==='KeyV'&&!e.repeat)frontView=!frontView;
   if(e.code==='KeyR'&&!e.repeat)scan();
 });
@@ -144,7 +147,10 @@ renderer.setAnimationLoop(now=>{
     sub.position.y+=(Number(keys.has('Space'))-Number(pressed('ShiftLeft','ShiftRight')))*dt*2.5;
     sub.position.x=THREE.MathUtils.clamp(sub.position.x,-65,65);sub.position.z=THREE.MathUtils.clamp(sub.position.z,-65,65);
     sub.position.y=THREE.MathUtils.clamp(sub.position.y,floorHeight(sub.position.x,sub.position.z)+1.35,1);
-    energy=Math.max(0,energy-dt*(.08+Math.abs(speed)*.015));if(!energy)finish(false);
+    for(const sample of samples){
+      if(!sample.userData.found&&touchesSample(sub,sample.position))collect(sample);
+    }
+    if(started){energy=Math.max(0,energy-dt*(.08+Math.abs(speed)*.015));if(!energy)finish(false);}
     for(const creature of scene.children){
       if(!creature.userData.species||discoveries.has(creature.userData.species))continue;
       if(creature.position.distanceTo(sub.position)<8){
@@ -153,7 +159,7 @@ renderer.setAnimationLoop(now=>{
       }
     }
     const nearest=samples.filter(s=>!s.userData.found).sort((a,b)=>a.position.distanceToSquared(sub.position)-b.position.distanceToSquared(sub.position))[0];
-    if(nearest){const d=nearest.position.distanceTo(sub.position);notify(d<3?`E：${nearest.userData.label}を回収`:`最寄りのサンプル ${d.toFixed(0)} m ・ 青い光を探してください`);}
+    if(nearest){const d=nearest.position.distanceTo(sub.position);notify(`最寄りのサンプル ${d.toFixed(0)} m ・ 青い光に触れると自動回収`);}
   }
   if(model){model.position.y=Math.sin(time*.9)*.04;model.rotation.z=Math.sin(time*.7)*.01;}
   const inspect=frontView||(!started&&complete.classList.contains('hidden'));

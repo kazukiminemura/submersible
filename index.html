@@ -14,11 +14,11 @@
         <div class="mission-card"><small>MISSION 01 · 深海生態調査</small><strong>生体サンプルを回収せよ</strong><div class="mission-progress"><progress id="mission-progress" max="5" value="0"></progress><b id="mission-count">0 / 5</b></div><div class="mission-stats"><span>SCORE <b id="score">0000</b></span><span>TIME <b id="elapsed">00:00</b></span></div><small id="discoveries">生物発見 0 / 4</small></div>
         <div class="radar-card"><div><small>SONAR · 35 m</small><b id="bearing">000°</b></div><canvas id="radar" width="160" height="160" aria-label="艇の前方が上のサンプル探知レーダー"></canvas><button id="scan" disabled>R · ソナー発信</button></div>
         <div id="message" class="message">音響スキャンを開始。青いビーコンを探してください。</div>
-        <div class="controls"><b>操縦</b><span>WASD：移動</span><span>Space / Shift：浮上・潜航</span><span>E：回収</span><span>V：視点</span><span>R：ソナー</span><span>M：消音</span></div>
+        <div class="controls"><b>操縦</b><span>WASD：移動</span><span>Space / Shift：浮上・潜航</span><span>接触で自動回収</span><span>V：視点</span><span>R：ソナー</span><span>M：消音</span></div>
       </section>
       <div class="audio-controls"><button id="mute" aria-pressed="false">M · サウンド ON</button><label>音量<input id="volume" aria-label="音量" type="range" min="0" max="100" value="45"></label><small id="audio-status">探査開始でBGM再生</small></div>
       <div id="toast" class="game-toast" role="status"><strong></strong><span></span></div>
-      <section id="start" class="start-screen"><div class="panel"><p>OCEAN EXPLORATION SIMULATOR</p><h1>深海へ、潜る。</h1><span>ソナーを頼りに5つの生体サンプルを回収。<br>巨大な海洋生物を発見して調査スコアを伸ばしましょう。</span><small class="sound-hint">♫ 探索BGM付き · 音量は右上で調整できます</small><button id="launch">探査を開始</button></div></section>
+      <section id="start" class="start-screen"><div class="panel"><p>OCEAN EXPLORATION SIMULATOR</p><h1>深海へ、潜る。</h1><span>青いサンプルに触れると自動回収。<br>ソナーを頼りに5つ集め、生物を発見して調査スコアを伸ばしましょう。</span><small class="sound-hint">♫ 探索BGM付き · 音量は右上で調整できます</small><button id="launch">探査を開始</button></div></section>
       <section id="complete" class="complete hidden"><div class="panel"><p>MISSION COMPLETE</p><h1>全サンプルを回収</h1><span>海洋研究基地へデータを送信しました。</span><button id="restart">もう一度潜る</button></div></section>
     </main>
     <script type="module" src="/src/main.js"></script>
